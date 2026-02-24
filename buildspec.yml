@@ -5,21 +5,18 @@ phases:
     runtime-versions:
       python: 3.11
     commands:
-      - echo Installing dependencies...
       - pip install -r requirements.txt -t .
 
   build:
     commands:
-      - echo Zipping Lambda package...
-      - zip -r lambda_package.zip .
+      - zip -r function.zip .
+
+  post_build:
+    commands:
+      - aws lambda update-function-code \
+          --function-name GenAICodeReviewer \
+          --zip-file fileb://function.zip
 
 artifacts:
   files:
-    - lambda_package.zip
-
-post_build:
-  commands:
-    - echo Deploying to Lambda...
-    - aws lambda update-function-code \
-        --function-name GenAICodeReviewer \
-        --zip-file fileb://lambda_package.zip
+    - function.zip

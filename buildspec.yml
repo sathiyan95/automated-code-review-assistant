@@ -14,6 +14,7 @@ phases:
   post_build:
     commands:
       - aws lambda update-function-code \
+          --region ap-south-1 \
           --function-name GenAICodeReviewer \
           --zip-file fileb://function.zip
 

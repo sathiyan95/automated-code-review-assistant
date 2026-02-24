@@ -4,36 +4,22 @@ phases:
   install:
     runtime-versions:
       python: 3.11
-  pre_build:
     commands:
-      - echo "Injecting dynamic variables into frontend/script.js..."
-      # Replace placeholder placeholders with the actual generated CF Output values
-      - sed -i "s|YOUR_API_GATEWAY_URL_HERE|$API_URL|g" frontend/script.js
-      - sed -i "s|YOUR_REPORTS_BUCKET_URL_HERE|https://$REPORTS_BUCKET.s3.amazonaws.com|g" frontend/script.js
+      - echo Installing dependencies...
+      - pip install -r requirements.txt -t .
+
   build:
     commands:
-      - echo "Packaging AWS Lambda functions..."
-      - cd backend
-      - zip -r genai_code_reviewer_lambda.zip genai_code_reviewer_lambda.py
-      - zip -r analyze_controller_lambda.zip analyze_controller_lambda.py
-      - cd ..
-  post_build:
-    commands:
-      - echo "Syncing Static Website to S3..."
-      - aws s3 sync frontend/ s3://$WEBSITE_BUCKET/
-      - echo "Updating Lambda function source code..."
-      - aws lambda update-function-code --function-name GenAICodeReviewer --zip-file fileb://backend/genai_code_reviewer_lambda.zip
-      - aws lambda update-function-code --function-name AnalyzeController --zip-file fileb://backend/analyze_controller_lambda.zip
-      - echo "Uploading Glue job script to S3..."
-      - aws s3 cp scripts/glue_commit_analyzer.py s3://$REPORTS_BUCKET/scripts/glue_commit_analyzer.py
-      - echo "Placeholder CI/CD metadata extraction..."
-      - mkdir -p data
-      - echo "No commits for pipeline self-trigger since it does not run per-repo" > data/commits_raw.txt
-      - python -c "import json; f=open('data/commits_raw.txt'); json.dump({'commit_text': f.read()}, open('data/commits.json', 'w')); f.close()"
-      - aws s3 cp data/commits.json s3://$REPORTS_BUCKET/data/commits.json
-      - echo "Build and deployment completed."
+      - echo Zipping Lambda package...
+      - zip -r lambda_package.zip .
 
 artifacts:
   files:
-    - '**/*'
-  discard-paths: no
+    - lambda_package.zip
+
+post_build:
+  commands:
+    - echo Deploying to Lambda...
+    - aws lambda update-function-code \
+        --function-name GenAICodeReviewer \
+        --zip-file fileb://lambda_package.zip

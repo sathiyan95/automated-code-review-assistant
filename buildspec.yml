@@ -5,14 +5,19 @@ phases:
     runtime-versions:
       python: 3.11
     commands:
-      - mkdir package
-      - pip install -r requirements.txt -t package
-      - cp genai_code_reviewer_lambda.py package/
+      - pip install -r requirements.txt -t backend/
 
   build:
     commands:
-      - cd package
+      - cd backend
       - zip -r ../function.zip .
+
+  post_build:
+    commands:
+      - aws lambda update-function-code \
+          --region ap-south-1 \
+          --function-name GenAICodeReviewer \
+          --zip-file fileb://function.zip
 
 artifacts:
   files:

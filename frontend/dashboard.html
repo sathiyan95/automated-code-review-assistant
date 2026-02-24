@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Automated Code Review Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>Automated Code Review Assistant</h1>
+        <nav>
+            <ul>
+                <li><a href="index.html">Home</a></li>
+                <li><a href="dashboard.html" class="active">Dashboard</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        <div class="dashboard-header">
+            <h2>Project Overview</h2>
+            <div class="score-card">
+                <h3>Performance Score</h3>
+                <div class="score-value">92/100</div>
+                <p class="score-trend positive">↑ 4% from last review</p>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="dashboard-card" id="tech-debt-section">
+                <h3>Technical Debt Graph</h3>
+                <div class="chart-container" id="tech-debt-chart">
+                    <p class="loading-text">Analyzing last 100 commits...</p>
+                    <!-- GenAI visualization will render here -->
+                </div>
+            </div>
+
+            <div class="dashboard-card" id="ai-review-section">
+                <h3>AI Review Output</h3>
+                <div class="review-content">
+                    <div class="review-item">
+                        <h4>Performance Bottlenecks</h4>
+                        <p>Found 2 potential bottlenecks in <code>backend/app.py</code> during the static analysis scan.
+                        </p>
+                    </div>
+                    <div class="review-item">
+                        <h4>Suggested Optimizations</h4>
+                        <div class="code-snippet">
+                            <pre><code># Optimized query suggestion by GenAI
+def get_user_data(user_id):
+    return db.query(User).options(joinedload(User.profile)).filter_by(id=user_id).first()</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

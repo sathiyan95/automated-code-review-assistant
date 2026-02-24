@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Code Review Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>Automated Code Review Assistant</h1>
+        <nav>
+            <ul>
+                <li><a href="index.html">Home</a></li>
+                <li><a href="dashboard.html">Dashboard</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        <section class="hero">
+            <h2>Welcome to your AI-powered Code Reviewer</h2>
+            <p>Analyze performance bottlenecks, visualize technical debt, and get optimized code suggestions via GenAI.
+            </p>
+            <form id="analyze-form" class="repo-form"
+                style="margin-top: 2rem; display: flex; flex-direction: column; align-items: center; gap: 1rem;">
+                <input type="url" id="repo-url"
+                    placeholder="Enter Public Git Repository URL (e.g. https://github.com/user/project)" required
+                    style="width: 60%; padding: 1rem; border-radius: 8px; border: 1px solid var(--border); font-size: 1rem;" />
+                <button type="submit" class="cta-button" style="border: none; cursor: pointer;">Analyze
+                    Repository</button>
+            </form>
+            <div style="margin-top: 1.5rem;">
+                <a href="dashboard.html" style="color: var(--text-muted); font-size: 0.9rem;">Or view previous analysis
+                    dashboard</a>
+            </div>
+        </section>
+    </main>
+    <script src="script.js"></script>
+</body>
+
+</html>

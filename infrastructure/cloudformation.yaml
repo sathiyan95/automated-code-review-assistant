@@ -1,0 +1,391 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Serverless CI/CD Pipeline Backbone for AI Code Review Assistant'
+
+Parameters:
+  GitHubRepoOwner:
+    Type: String
+    Description: 'The GitHub owner/username'
+  GitHubRepoName:
+    Type: String
+    Description: 'The repository name'
+  GitHubBranch:
+    Type: String
+    Default: 'main'
+    Description: 'The branch to track for pushes'
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: 'Personal Access Token for GitHub'
+  GenAIApiKey:
+    Type: String
+    NoEcho: true
+    Description: 'API Key for Gemini GenAI (Used in Lambda & Glue)'
+
+Resources:
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: ['GET', 'POST', 'OPTIONS']
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  # Website Bucket
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+            Principal: '*'
+
+  # --- IAM Roles ---
+  AnalyzeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AnalyzeLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${ReportsBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt ReviewerLambdaFunction.Arn
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                Resource: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${TechDebtGlueJob}"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt GlueServiceRole.Arn
+
+  ReviewerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReviewerLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${ReportsBucket.Arn}/*
+
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: GlueS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${ReportsBucket.Arn}/*
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub ${PipelineArtifactBucket.Arn}
+                  - !Sub ${PipelineArtifactBucket.Arn}/*
+                  - !Sub ${ReportsBucket.Arn}
+                  - !Sub ${ReportsBucket.Arn}/*
+                  - !Sub ${WebsiteBucket.Arn}
+                  - !Sub ${WebsiteBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:GetFunction
+                Resource:
+                  - !GetAtt AnalyzeControllerLambda.Arn
+                  - !GetAtt ReviewerLambdaFunction.Arn
+                  
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelineAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub ${PipelineArtifactBucket.Arn}
+                  - !Sub ${PipelineArtifactBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt AppCodeBuildProject.Arn
+
+  # --- API Gateway ---
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: CodeReviewHttpApi
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['POST', 'GET', 'OPTIONS']
+        AllowHeaders: ['Content-Type', 'Authorization']
+
+  # --- Lambdas ---
+  ReviewerLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: GenAICodeReviewer
+      Handler: genai_code_reviewer_lambda.lambda_handler
+      Role: !GetAtt ReviewerLambdaRole.Arn
+      Runtime: python3.11
+      Timeout: 120
+      Environment:
+        Variables:
+          GENAI_API_KEY: !Ref GenAIApiKey
+          GITHUB_TOKEN: !Ref GitHubToken
+          REPORTS_BUCKET: !Ref ReportsBucket
+      Code:
+        # CodeBuild will replace this later, but we need dummy code to create it
+        ZipFile: |
+          def lambda_handler(event, context):
+              return {"statusCode": 200, "body": "Placeholder"}
+
+  AnalyzeControllerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: AnalyzeController
+      Handler: analyze_controller_lambda.lambda_handler
+      Role: !GetAtt AnalyzeLambdaRole.Arn
+      Runtime: python3.11
+      Timeout: 60
+      Environment:
+        Variables:
+          GITHUB_TOKEN: !Ref GitHubToken
+          REPORTS_BUCKET: !Ref ReportsBucket
+          REVIEW_LAMBDA_NAME: !Ref ReviewerLambdaFunction
+          GLUE_JOB_NAME: !Ref TechDebtGlueJob
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+              return {"statusCode": 200, "body": "Placeholder"}
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AnalyzeControllerLambda.Arn}/invocations
+      PayloadFormatVersion: "2.0"
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "ANY /api/analyze"
+      Target: !Sub integrations/${ApiIntegration}
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: prod
+      AutoDeploy: true
+
+  LambdaApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AnalyzeControllerLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*"
+
+  # --- Glue Job ---
+  TechDebtGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: TechDebtAnalyzerJob
+      Role: !GetAtt GlueServiceRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://${ReportsBucket}/scripts/glue_commit_analyzer.py
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--GENAI_API_KEY': !Ref GenAIApiKey
+        '--OUTPUT_BUCKET': !Ref ReportsBucket
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      MaxCapacity: 2.0
+      GlueVersion: '3.0'
+
+  # --- CodeBuild & CodePipeline ---
+  AppCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: AutomatedCodeReviewBuild
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        EnvironmentVariables:
+          - Name: REPORTS_BUCKET
+            Value: !Ref ReportsBucket
+          - Name: WEBSITE_BUCKET
+            Value: !Ref WebsiteBucket
+          - Name: API_URL
+            Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+
+  AppCodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: AutomatedCodeReviewPipeline
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              Configuration:
+                Owner: !Ref GitHubRepoOwner
+                Repo: !Ref GitHubRepoName
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+              OutputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
+        - Name: BuildAndDeploy
+          Actions:
+            - Name: CodeBuildExecution
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref AppCodeBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+Outputs:
+  WebsiteUrl:
+    Value: !Sub "http://${WebsiteBucket}.s3-website-${AWS::Region}.amazonaws.com"
+    Description: "Frontend S3 Website URL"
+  ApiEndpoint:
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+    Description: "API Gateway Endpoint URL"
+  ReportsBucketName:
+    Value: !Ref ReportsBucket
+    Description: "S3 Bucket storing analysis reports"
